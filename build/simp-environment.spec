@@ -33,26 +33,23 @@
 
 Summary: The SIMP Environment Scaffold
 Name: simp-environment
-Version: 6.2.10
+Version: 6.3.0
 Release: 0%{?dist}
 License: Apache License 2.0
 Group: Applications/System
 Source: %{name}-%{version}-%{release}.tar.gz
 Buildroot: %{_tmppath}/%{name}-%{version}-%{release}-buildroot
 Requires: libselinux-utils
-Requires: policycoreutils
-Requires: pupmod-simp-simp >= 3.0.0
-Requires: pupmod-simp-pki >= 6.0.0-0
-Requires: createrepo
-Requires: simp-rsync >= 6.2.0-0
-Requires: simp-utils >= 6.0.0-0
-Requires: rubygem(simp-cli) >= 1.0.0-0
 Requires: openssl
+Requires: policycoreutils
 Requires(pre,preun,post,postun): simp-adapter
+Requires(pre,post): puppet
 Requires(post): coreutils
+Requires(post): createrepo
+Requires(post): facter
 Requires(post): glibc-common
-Requires(post): pam
 Requires(post): libsemanage
+Requires(post): pam
 %if 0%{?selinux_policy_version:1}
 Requires(post): selinux-policy >= %{selinux_policy_version}
 Requires(post): selinux-policy-targeted >= %{selinux_policy_version}
@@ -61,7 +58,7 @@ Requires(post): selinux-policy
 Requires(post): selinux-policy-targeted
 %endif
 
-Requires(postun): policycoreutils
+Requires(post,postun): policycoreutils
 BuildRequires: selinux-policy-targeted
 %if 0%{?selinux_policy_version:1}
 BuildRequires: policycoreutils == %{policycoreutils_version}
@@ -82,15 +79,6 @@ BuildRequires: selinux-policy-targeted
   %endif
 %endif
 
-#%if "%{?rhel}%{!?rhel:0}" > "6"
-#BuildRequires: selinux-policy-devel
-#%endif
-Provides: simp-bootstrap = %{version}-%{release}
-Provides: simp_bootstrap = %{version}-%{release}
-Obsoletes: simp-bootstrap < %{version}-%{release}
-Obsoletes: simp_bootstrap < %{version}-%{release}
-Obsoletes: simp_config < %{version}-%{release}
-Obsoletes: simp-config < %{version}-%{release}
 Buildarch: noarch
 
 Prefix: /usr/share/simp/environments/simp
@@ -112,9 +100,8 @@ cd -
 [ "%{buildroot}" != "/" ] && rm -rf %{buildroot}
 
 # Make your directories here.
-mkdir -p %{buildroot}/%{prefix}/hieradata/hostgroups
+mkdir -p %{buildroot}/%{prefix}/data/hostgroups
 mkdir -p %{buildroot}/%{prefix}/simp_autofiles
-mkdir -p %{buildroot}/%{prefix}/hieradata/compliance_profiles
 mkdir -p %{buildroot}/%{_var}/simp/environments/simp/site_files/krb5_files/files/keytabs
 mkdir -p %{buildroot}/%{_var}/simp/environments/simp/site_files/pki_files/files/keydist/cacerts
 
@@ -146,12 +133,13 @@ cd -
 %attr(0750,-,-) %{_var}/simp/environments/simp/site_files/pki_files/files/keydist
 %attr(0750,-,-) %{_var}/simp/environments/simp/site_files/pki_files/files/keydist/cacerts
 %config(noreplace) %{prefix}/environment.conf
-%config(noreplace) %{prefix}/hieradata/hosts/puppet.your.domain.yaml
-%config(noreplace) %{prefix}/hieradata/hostgroups/default.yaml
-%config(noreplace) %{prefix}/hieradata/scenarios/simp.yaml
-%config(noreplace) %{prefix}/hieradata/scenarios/simp_lite.yaml
-%config(noreplace) %{prefix}/hieradata/scenarios/poss.yaml
-%config(noreplace) %{prefix}/hieradata/default.yaml
+%config(noreplace) %{prefix}/hiera.yaml
+%config(noreplace) %{prefix}/data/hosts/puppet.your.domain.yaml
+%config(noreplace) %{prefix}/data/hostgroups/default.yaml
+%config(noreplace) %{prefix}/data/scenarios/simp.yaml
+%config(noreplace) %{prefix}/data/scenarios/simp_lite.yaml
+%config(noreplace) %{prefix}/data/scenarios/poss.yaml
+%config(noreplace) %{prefix}/data/default.yaml
 %config(noreplace) %{prefix}/manifests/site.pp
 
 %{_datadir}/selinux/*/%{selinux_policy}
@@ -188,7 +176,7 @@ puppet_group=`puppet config print group 2> /dev/null`
 
 chown -R ${puppet_user}:${puppet_group} %{prefix}/simp_autofiles
 chgrp ${puppet_group} %{prefix}/environment.conf
-chgrp -R ${puppet_group} %{prefix}/hieradata
+chgrp -R ${puppet_group} %{prefix}/data
 chgrp -R ${puppet_group} %{prefix}/manifests
 chgrp -R ${puppet_group} %{_var}/simp/environments/simp/site_files
 
@@ -265,8 +253,10 @@ else
   fi
 fi
 
-# Needed for migrating the environment data into the codedir
-/usr/local/sbin/simp_rpm_helper --rpm_dir=%{prefix} --rpm_section='post' --rpm_status=$1 --preserve --target_dir='.'
+# Needed for migrating the environment data into the codedir for an initial install
+if [ $1 -eq 1 ]; then
+  /usr/local/sbin/simp_rpm_helper --rpm_dir=%{prefix} --rpm_section='post' --rpm_status=$1 --preserve --target_dir='.'
+fi
 
 %postun
 # Post uninstall stuff
@@ -276,12 +266,26 @@ if [ $1 -eq 0 ]; then
     /usr/sbin/load_policy
     /sbin/fixfiles -R %{name} restore || :
   fi
+
+  # Needed for cleaning up the data from codedir as appropriate for an erase
+  /usr/local/sbin/simp_rpm_helper --rpm_dir=%{prefix} --rpm_section='postun' --rpm_status=$1 --preserve --target_dir='.'
 fi
 
-# Needed for cleaning up the data from codedir as appropriate
-/usr/local/sbin/simp_rpm_helper --rpm_dir=%{prefix} --rpm_section='postun' --rpm_status=$1 --preserve --target_dir='.'
 
 %changelog
+* Thu Jul 26 2018 Nick Miller <nick.miller@onyxpoint.com> - 6.3.0-0
+- Added a default Hiera 5 hiera.yaml.
+- Renamed environments/simp/hieradata/ to environments/simp/data/ to support
+  staged rollout of environment-specific hiera.yaml use.
+- Removed the OBE environments/simp/hieradata/compliance_profiles directory
+  and references to it.
+- Removed unnecessary package dependencies to make installation more portable.
+- Only use simp_rpm_helper to copy files installed in /usr/share/simp/environments
+  into /etc/puppetlabs/code/environments/simp, as appropriate, if this is an
+  initial install.
+- Only use simp_rpm_helper to remove file copies that reside in
+  /etc/puppetlabs/code/environments/simp, as appropriate, if this is an erase.
+
 * Mon Jul 16 2018 Jeanne Greulich <jeanne.greulich@onyxpoint.com> - 6.2.10-0
 - Added force option to the selinux fixfiles command in the post install
   section.  If this is not set, only the type context is restored, even
@@ -840,4 +844,3 @@ fi
   to vmware systems by default, so this will not affect any other types of host
   but is one less thing to remember to include.
 - Changed the verify variable for syslog to 2.
-
