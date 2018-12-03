@@ -34,6 +34,7 @@ simp_options::firewall: true
 simp_options::haveged: true
 simp_options::logrotate: true
 simp_options::pam: true
+simp_options::oath: false
 simp_options::pki: simp
 simp_options::selinux: true
 simp_options::stunnel: true
